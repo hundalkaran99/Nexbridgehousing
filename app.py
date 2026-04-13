@@ -15,48 +15,23 @@ st.set_page_config(page_title="Nexbridge Housing", page_icon="🏠", layout="cen
 
 st.markdown("""
     <style>
-    .main {
-        background-color: #f0f4f8;
-    }
-    .block-container {
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-    }
     .header-box {
-        background: linear-gradient(135deg, #1a1a2e, #16213e);
-        padding: 2rem;
-        border-radius: 16px;
+        background-color: #1a73e8;
+        padding: 1.5rem 2rem;
+        border-radius: 12px;
         text-align: center;
         margin-bottom: 1.5rem;
     }
     .header-box h1 {
         color: white;
-        font-size: 2.5rem;
+        font-size: 2rem;
         margin: 0;
     }
     .header-box p {
-        color: #a0aec0;
-        font-size: 1rem;
-        margin-top: 0.5rem;
-    }
-    .stChatMessage {
-        background-color: white;
-        border-radius: 12px;
-        padding: 0.5rem;
-        margin-bottom: 0.5rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    div.stButton > button {
-        background-color: #1a1a2e;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.4rem 1rem;
-        font-size: 0.85rem;
-    }
-    div.stButton > button:hover {
-        background-color: #16213e;
-        color: white;
+        color: #e8f0fe;
+        font-size: 0.95rem;
+        margin-top: 0.4rem;
+        margin-bottom: 0;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -106,7 +81,7 @@ politely guide them back to housing topics."""
             st.write(question)
 
         with st.chat_message("assistant"):
-            with st.spinner(""):
+            with st.spinner("Thinking..."):
                 response = client.messages.create(
                     model="claude-sonnet-4-20250514",
                     max_tokens=1000,

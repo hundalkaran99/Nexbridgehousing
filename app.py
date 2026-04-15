@@ -2,10 +2,14 @@ import streamlit as st
 import anthropic
 from supabase import create_client
 from tavily import TavilyClient
+import resend
+import json
+import re
 
 anthropic_client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 tavily = TavilyClient(api_key=st.secrets["TAVILY_API_KEY"])
+resend.api_key = st.secrets["RESEND_API_KEY"]
 
 st.set_page_config(page_title="Cosmic AI", page_icon="✦", layout="centered")
 
@@ -96,8 +100,7 @@ def needs_search(question):
         "price", "stock", "score", "recent", "2024", "2025", "2026",
         "what is happening", "right now", "this week", "tonight"
     ]
-    question_lower = question.lower()
-    return any(keyword in question_lower for keyword in search_keywords)
+    return any(keyword in question.lower() for keyword in search_keywords)
 
 def search_web(query):
     try:
@@ -108,6 +111,26 @@ def search_web(query):
         return context
     except:
         return ""
+
+def send_email(to_email, subject, body):
+    try:
+        params = {
+            "from": "Cosmic AI <onboarding@resend.dev>",
+            "to": [to_email],
+            "subject": subject,
+            "text": body
+        }
+        resend.Emails.send(params)
+        return True
+    except Exception as e:
+        return False
+
+def detect_email_intent(question):
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    has_email = re.search(email_pattern, question)
+    email_keywords = ["send email", "send an email", "email to", "write an email", "shoot an email"]
+    has_keyword = any(keyword in question.lower() for keyword in email_keywords)
+    return has_email and has_keyword
 
 if "user" not in st.session_state:
     st.session_state.user = None
@@ -178,19 +201,44 @@ else:
             with st.spinner("Searching the web..."):
                 web_context = search_web(question)
 
-        system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant with access to real-time web search.
+        email_sent = False
+        if detect_email_intent(question):
+            with st.spinner("Preparing email..."):
+                email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+                found_email = re.search(email_pattern, question)
+                if found_email:
+                    to_address = found_email.group()
+                    email_response = anthropic_client.messages.create(
+                        model="claude-sonnet-4-20250514",
+                        max_tokens=500,
+                        messages=[{
+                            "role": "user",
+                            "content": f"Write a short professional email based on this request: {question}. Reply with ONLY a JSON object with keys 'subject' and 'body'. Nothing else."
+                        }]
+                    )
+                    try:
+                        email_data = json.loads(email_response.content[0].text)
+                        success = send_email(to_address, email_data["subject"], email_data["body"])
+                        email_sent = success
+                    except:
+                        email_sent = False
+
+        system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant with access to real-time web search and email sending.
 
 What you remember about this user:
 {memory if memory else "Nothing yet — this is a new user."}
 
 {f"Web search results for context:{chr(10)}{web_context}" if web_context else ""}
 
+{"The email has been sent successfully." if email_sent else ""}
+
 As you learn new important things about the user (name, location, job, preferences),
 remember them. At the end of your response, if you learned something new and important,
-add a line starting with 'REMEMBER:' followed by a brief note to update memory.
+add a line starting with 'REMEMBER:' followed by a brief note.
 
 Answer every question clearly, accurately and concisely.
-If you used web search results, mention that your answer is based on current web data."""
+If you used web search results, mention that your answer is based on current web data.
+If an email was sent, confirm it to the user."""
 
         with st.chat_message("assistant"):
             with st.spinner(""):

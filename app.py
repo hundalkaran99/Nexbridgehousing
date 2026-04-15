@@ -1,9 +1,11 @@
 import streamlit as st
 import anthropic
 from supabase import create_client
+from tavily import TavilyClient
 
 anthropic_client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+tavily = TavilyClient(api_key=st.secrets["TAVILY_API_KEY"])
 
 st.set_page_config(page_title="Cosmic AI", page_icon="✦", layout="centered")
 
@@ -59,14 +61,6 @@ st.markdown("""
         border-radius: 8px !important;
     }
     .stMarkdown p { color: #c8cad8; }
-    .auth-box {
-        max-width: 400px;
-        margin: 0 auto;
-        padding: 2rem;
-        background: #0e0f1a;
-        border: 1px solid #1e2030;
-        border-radius: 12px;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -96,6 +90,25 @@ def save_memory(user_id, memory):
     except:
         pass
 
+def needs_search(question):
+    search_keywords = [
+        "today", "now", "current", "latest", "news", "weather",
+        "price", "stock", "score", "recent", "2024", "2025", "2026",
+        "what is happening", "right now", "this week", "tonight"
+    ]
+    question_lower = question.lower()
+    return any(keyword in question_lower for keyword in search_keywords)
+
+def search_web(query):
+    try:
+        results = tavily.search(query=query, max_results=3)
+        context = ""
+        for r in results["results"]:
+            context += f"Source: {r['url']}\n{r['content']}\n\n"
+        return context
+    except:
+        return ""
+
 if "user" not in st.session_state:
     st.session_state.user = None
 
@@ -114,7 +127,7 @@ if st.session_state.user is None:
                 st.session_state.user = result.user
                 st.session_state.messages = []
                 st.rerun()
-            except Exception as e:
+            except:
                 st.error("Invalid email or password.")
 
     with tab2:
@@ -122,20 +135,24 @@ if st.session_state.user is None:
         new_password = st.text_input("Password", type="password", key="signup_password")
         if st.button("Create Account"):
             try:
-                result = supabase.auth.sign_up({
+                supabase.auth.sign_up({
                     "email": new_email,
                     "password": new_password
                 })
                 st.success("Account created! Please check your email to verify, then sign in.")
-            except Exception as e:
+            except:
                 st.error("Could not create account. Try a different email.")
 
 else:
     user_id = st.session_state.user.id
     memory = get_memory(user_id)
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col2:
+        if st.button("+ New"):
+            st.session_state.messages = []
+            st.rerun()
+    with col3:
         if st.button("Sign Out"):
             supabase.auth.sign_out()
             st.session_state.user = None
@@ -144,12 +161,6 @@ else:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
-
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("+ New"):
-            st.session_state.messages = []
-            st.rerun()
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -162,16 +173,24 @@ else:
         with st.chat_message("user"):
             st.write(question)
 
-        system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant.
+        web_context = ""
+        if needs_search(question):
+            with st.spinner("Searching the web..."):
+                web_context = search_web(question)
+
+        system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant with access to real-time web search.
 
 What you remember about this user:
 {memory if memory else "Nothing yet — this is a new user."}
+
+{f"Web search results for context:{chr(10)}{web_context}" if web_context else ""}
 
 As you learn new important things about the user (name, location, job, preferences),
 remember them. At the end of your response, if you learned something new and important,
 add a line starting with 'REMEMBER:' followed by a brief note to update memory.
 
-Answer every question clearly, accurately and concisely."""
+Answer every question clearly, accurately and concisely.
+If you used web search results, mention that your answer is based on current web data."""
 
         with st.chat_message("assistant"):
             with st.spinner(""):

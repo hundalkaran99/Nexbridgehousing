@@ -9,9 +9,7 @@ st.set_page_config(page_title="Cosmic AI", page_icon="✦", layout="centered")
 
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #08090d;
-    }
+    .stApp { background-color: #08090d; }
     .header-box {
         padding: 2.5rem 2rem 2rem 2rem;
         text-align: center;
@@ -60,8 +58,14 @@ st.markdown("""
         border: 1px solid #1e2030 !important;
         border-radius: 8px !important;
     }
-    .stMarkdown p {
-        color: #c8cad8;
+    .stMarkdown p { color: #c8cad8; }
+    .auth-box {
+        max-width: 400px;
+        margin: 0 auto;
+        padding: 2rem;
+        background: #0e0f1a;
+        border: 1px solid #1e2030;
+        border-radius: 12px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -92,64 +96,101 @@ def save_memory(user_id, memory):
     except:
         pass
 
-if "user_id" not in st.session_state:
-    st.session_state.user_id = st.text_input("Enter your name to get started:", key="name_input")
-    if st.session_state.user_id:
-        st.rerun()
-    st.stop()
+if "user" not in st.session_state:
+    st.session_state.user = None
 
-user_id = st.session_state.user_id
-memory = get_memory(user_id)
+if st.session_state.user is None:
+    tab1, tab2 = st.tabs(["Sign In", "Sign Up"])
 
-col1, col2 = st.columns([3, 1])
-with col2:
-    if st.button("+ New"):
+    with tab1:
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Password", type="password", key="login_password")
+        if st.button("Sign In"):
+            try:
+                result = supabase.auth.sign_in_with_password({
+                    "email": email,
+                    "password": password
+                })
+                st.session_state.user = result.user
+                st.session_state.messages = []
+                st.rerun()
+            except Exception as e:
+                st.error("Invalid email or password.")
+
+    with tab2:
+        new_email = st.text_input("Email", key="signup_email")
+        new_password = st.text_input("Password", type="password", key="signup_password")
+        if st.button("Create Account"):
+            try:
+                result = supabase.auth.sign_up({
+                    "email": new_email,
+                    "password": new_password
+                })
+                st.success("Account created! Please check your email to verify, then sign in.")
+            except Exception as e:
+                st.error("Could not create account. Try a different email.")
+
+else:
+    user_id = st.session_state.user.id
+    memory = get_memory(user_id)
+
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("Sign Out"):
+            supabase.auth.sign_out()
+            st.session_state.user = None
+            st.session_state.messages = []
+            st.rerun()
+
+    if "messages" not in st.session_state:
         st.session_state.messages = []
-        st.rerun()
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("+ New"):
+            st.session_state.messages = []
+            st.rerun()
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
 
-question = st.chat_input("Message Cosmic AI...")
+    question = st.chat_input("Message Cosmic AI...")
 
-if question:
-    st.session_state.messages.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.write(question)
+    if question:
+        st.session_state.messages.append({"role": "user", "content": question})
+        with st.chat_message("user"):
+            st.write(question)
 
-    system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant.
+        system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant.
 
 What you remember about this user:
-{memory if memory else "Nothing yet — this might be a new user."}
+{memory if memory else "Nothing yet — this is a new user."}
 
-As you learn new important things about the user (name, location, job, preferences), 
-remember them. At the end of your response, if you learned something new and important, 
+As you learn new important things about the user (name, location, job, preferences),
+remember them. At the end of your response, if you learned something new and important,
 add a line starting with 'REMEMBER:' followed by a brief note to update memory.
 
 Answer every question clearly, accurately and concisely."""
 
-    with st.chat_message("assistant"):
-        with st.spinner(""):
-            response = anthropic_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=1000,
-                system=system_prompt,
-                messages=st.session_state.messages
-            )
-            answer = response.content[0].text
+        with st.chat_message("assistant"):
+            with st.spinner(""):
+                response = anthropic_client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1000,
+                    system=system_prompt,
+                    messages=st.session_state.messages
+                )
+                answer = response.content[0].text
 
-            if "REMEMBER:" in answer:
-                parts = answer.split("REMEMBER:")
-                clean_answer = parts[0].strip()
-                new_memory = parts[1].strip()
-                updated_memory = memory + "\n" + new_memory if memory else new_memory
-                save_memory(user_id, updated_memory)
-                st.write(clean_answer)
-            else:
-                st.write(answer)
+                if "REMEMBER:" in answer:
+                    parts = answer.split("REMEMBER:")
+                    clean_answer = parts[0].strip()
+                    new_memory = parts[1].strip()
+                    updated_memory = memory + "\n" + new_memory if memory else new_memory
+                    save_memory(user_id, updated_memory)
+                    st.write(clean_answer)
+                else:
+                    st.write(answer)
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+        st.session_state.messages.append({"role": "assistant", "content": answer})

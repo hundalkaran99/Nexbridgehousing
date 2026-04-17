@@ -5,6 +5,8 @@ from tavily import TavilyClient
 import resend
 import json
 import re
+import requests
+from bs4 import BeautifulSoup
 
 anthropic_client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
 supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -112,6 +114,23 @@ def search_web(query):
     except:
         return ""
 
+def extract_url(text):
+    url_pattern = r'https?://[^\s]+'
+    match = re.search(url_pattern, text)
+    return match.group() if match else None
+
+def read_url(url):
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n", strip=True)
+        return text[:4000]
+    except:
+        return ""
+
 def send_email(to_email, subject, body):
     try:
         params = {
@@ -122,7 +141,7 @@ def send_email(to_email, subject, body):
         }
         resend.Emails.send(params)
         return True
-    except Exception as e:
+    except:
         return False
 
 def detect_email_intent(question):
@@ -197,13 +216,20 @@ else:
             st.write(question)
 
         web_context = ""
-        if needs_search(question):
+        url_content = ""
+        email_sent = False
+
+        url = extract_url(question)
+        if url:
+            with st.spinner("Reading page..."):
+                url_content = read_url(url)
+
+        elif needs_search(question):
             with st.spinner("Searching the web..."):
                 web_context = search_web(question)
 
-        email_sent = False
         if detect_email_intent(question):
-            with st.spinner("Preparing email..."):
+            with st.spinner("Sending email..."):
                 email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
                 found_email = re.search(email_pattern, question)
                 if found_email:
@@ -218,18 +244,17 @@ else:
                     )
                     try:
                         email_data = json.loads(email_response.content[0].text)
-                        success = send_email(to_address, email_data["subject"], email_data["body"])
-                        email_sent = success
+                        email_sent = send_email(to_address, email_data["subject"], email_data["body"])
                     except:
                         email_sent = False
 
-        system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant with access to real-time web search and email sending.
+        system_prompt = f"""You are Cosmic AI, a precise and intelligent personal assistant.
 
 What you remember about this user:
 {memory if memory else "Nothing yet — this is a new user."}
 
-{f"Web search results for context:{chr(10)}{web_context}" if web_context else ""}
-
+{f"Content from the URL the user shared:{chr(10)}{url_content}" if url_content else ""}
+{f"Web search results:{chr(10)}{web_context}" if web_context else ""}
 {"The email has been sent successfully." if email_sent else ""}
 
 As you learn new important things about the user (name, location, job, preferences),
@@ -237,14 +262,15 @@ remember them. At the end of your response, if you learned something new and imp
 add a line starting with 'REMEMBER:' followed by a brief note.
 
 Answer every question clearly, accurately and concisely.
-If you used web search results, mention that your answer is based on current web data.
+If the user shared a URL, summarize the page content clearly.
+If you used web search, mention your answer is based on current web data.
 If an email was sent, confirm it to the user."""
 
         with st.chat_message("assistant"):
             with st.spinner(""):
                 response = anthropic_client.messages.create(
                     model="claude-sonnet-4-20250514",
-                    max_tokens=1000,
+                    max_tokens=1500,
                     system=system_prompt,
                     messages=st.session_state.messages
                 )

@@ -3,3 +3,5 @@ anthropic
 supabase
 tavily-python
 resend
+requests
+beautifulsoup4
